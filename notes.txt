@@ -1,0 +1,113 @@
+Learnings of OAuth
+
+https://howtodoinjava.com/spring-boot2/oauth2-auth-server/
+
+Tokens represent specific scopes and durations of access, granted by the resource owner, and enforced by the resource server and authorization server.
+
+ refresh token is issued (along with the access token) to the client by the authorization server, and it is used to obtain a new access token when the current access token becomes invalid or expires
+
+
+@EnableAuthorizationServer and extend the class AuthorizationServerConfigurerAdapter.
+
+configure method is overriden
+
+tokenKeyAccess - permitAll() - Spring sets up an endpoint here automatically, I think we just need to tell it to open up.
+
+The tokenKeyAccess() configures access for the endpoint exposing the public key used for signing JWT tokens. The checkTokenAccess() configures access for the endpoint used to decode access tokens.
+
+Spring Security OAuth exposes two endpoints for checking tokens (/oauth/check_token and /oauth/token_key). Those endpoints are not exposed by default (have access "denyAll()").
+
+So if you want to verify the tokens with this endpoint you'll have to add this to your authorization servers' config:
+
+@Override
+public void configure(AuthorizationServerSecurityConfigurer oauthServer) throws Exception {
+    oauthServer.tokenKeyAccess("isAnonymous() || hasAuthority('ROLE_TRUSTED_CLIENT')")
+               .checkTokenAccess("hasAuthority('ROLE_TRUSTED_CLIENT')");
+}
+
+Q
+I'm trying to setup a resource server to work with separate authorization server using spring security oauth. I'm using RemoteTokenServices which requires /check_token endpoint.
+
+I could see that /oauth/check_token endpoint is enabled by default when @EnableAuthorizationServer is used. However the endpoint is not accessible by default.
+
+ANS
+@Override
+public void configure(AuthorizationServerSecurityConfigurer oauthServer) throws Exception
+{
+   oauthServer.checkTokenAccess("permitAll()");    
+}
+
+
+--------
+
+ClientDetailsServiceConfigurer is used to define an in-memory or JDBC implementation of the client details service. we have used in-memory implementation. It has the following important attributes:
+
+clientId – (required) the client id.
+secret – (required for trusted clients) the client secret, if any.
+scope – The scope to which the client is limited. If the scope is undefined or empty (the default), the client is not limited by scope.
+authorizedGrantTypes – Grant types that are authorized for the client to use. The default value is empty.
+authorities – Authorities that are granted to the client (regular Spring Security authorities).
+redirectUris – redirects the user-agent to the client’s redirection endpoint. It must be an absolute URL.
+
+
+Not sure what withClient is??? It's the username and password we can use??
+Not sure about other things either. Not well explained
+
+
+==============================================================================
+
+        http
+                .authorizeRequests()
+                .antMatchers("/api/**").authenticated()
+                .antMatchers("/").permitAll();
+    }
+
+
+@EnableResourceServer annotation means that your service (in terms of OAuth 2.0 - Resource Server) expects an access token in order to process the request. Access token should be obtained from Authorization Server by OAuth 2.0 Client before calling the Resource Server.
+
+
+
+=========================================
+
+SecurityConfig
+
+public class SecurityConfig extends WebSecurityConfigurerAdapter {
+
+    @Override
+    protected void configure(HttpSecurity http) throws Exception {
+    	http
+        	.antMatcher("/**")
+	        	.authorizeRequests()
+	        	.antMatchers("/oauth/authorize**", "/login**", "/error**")
+	        	.permitAll()
+        	.and()
+            	.authorizeRequests()
+            	.anyRequest().authenticated()
+        	.and()
+        		.formLogin().permitAll();
+    }
+
+    @Override
+    protected void configure(AuthenticationManagerBuilder auth) throws Exception {
+        auth
+        	.inMemoryAuthentication()
+            .withUser("humptydumpty").password(passwordEncoder().encode("123456")).roles("USER");
+    }
+
+    @Bean
+    public BCryptPasswordEncoder passwordEncoder(){
+        return new BCryptPasswordEncoder();
+    }
+}
+
+
+
+authorizeRequests() Allows restricting access based upon the HttpServletRequest using RequestMatcher implementations.
+
+permitAll() This will allow the public access that is anyone can access endpoint PUBLIC_URL without authentication.
+
+anyRequest().authenticated() will restrict the access for any other endpoint other than PUBLIC_URL, and the user must be authenticated.
+
+antMatcher() is a method of HttpSecurity, it doesn't have anything to do with authorizeRequests(). Basically, http.antMatcher() tells Spring to only configure HttpSecurity if the path matches this pattern.
+
+The authorizeRequests().antMatchers() is then used to apply authorization to one or more paths you specify in antMatchers(). Such as permitAll() or hasRole('USER3'). These only get applied if the first http.antMatcher() is matched.
